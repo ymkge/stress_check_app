@@ -57,21 +57,75 @@ def render_header():
     st.info("注意：このツールはあくまでプロトタイプであり、医学的診断に代わるものではありません。")
 
 def render_questionnaire():
-    """質問票を表示し、ユーザーの回答を収集します。"""
-    for q in questions_data:
-        st.markdown(f'<p class="question-text">{q["text"]}</p>', unsafe_allow_html=True)
-        # st.radioのインデックスをセッション状態で管理
-        st.session_state.answers[q["id"]] = st.radio(
-            label="", 
-            options=OPTIONS, 
-            key=q["id"], 
-            horizontal=True,
-            index=st.session_state.get('answer_indices', {}).get(q["id"], 0)
-        )
+    """質問票をページネーションで表示し、ユーザーの回答を収集します。"""
+    QUESTIONS_PER_PAGE = 10
+    
+    # 現在のページに対応する質問を取得
+    start_index = st.session_state.current_page * QUESTIONS_PER_PAGE
+    end_index = start_index + QUESTIONS_PER_PAGE
+    current_questions = questions_data[start_index:end_index]
 
-        # ユーザーの選択をインデックスとして保存（表示を維持するため）
-        st.session_state.setdefault('answer_indices', {})[q["id"]] = OPTIONS.index(st.session_state.answers[q["id"]])
+    # 進捗状況の表示
+    total_questions = len(questions_data)
+    answered_count = len(st.session_state.answers)
+    progress = answered_count / total_questions if total_questions > 0 else 0
+    
+    st.progress(progress)
+    st.write(f"進捗: {answered_count} / {total_questions} 問")
+    st.markdown("---")
+
+    # 質問の表示と回答の収集
+    for q in current_questions:
+        st.markdown(f'<p class="question-text">{q["text"]}</p>', unsafe_allow_html=True)
+        
+        current_answer = st.session_state.answers.get(q["id"])
+        try:
+            default_index = OPTIONS.index(current_answer) if current_answer in OPTIONS else 0
+        except ValueError:
+            default_index = 0
+        
+        answer = st.radio(
+            label="",
+            options=OPTIONS,
+            key=q["id"],
+            horizontal=True,
+            index=default_index
+        )
+        st.session_state.answers[q["id"]] = answer
         st.markdown("---")
+
+def handle_navigation():
+    """ページネーションのナビゲーションボタンを処理します。"""
+    QUESTIONS_PER_PAGE = 10
+    total_questions = len(questions_data)
+    num_pages = (total_questions + QUESTIONS_PER_PAGE - 1) // QUESTIONS_PER_PAGE if total_questions > 0 else 1
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col1:
+        if st.session_state.current_page > 0:
+            if st.button("⬅️ 前へ"):
+                st.session_state.current_page -= 1
+                st.rerun()
+
+    with col3:
+        if st.session_state.current_page < num_pages - 1:
+            if st.button("次へ ➡️"):
+                st.session_state.current_page += 1
+                st.rerun()
+
+    # 最後のページに「診断結果を見る」ボタンを表示
+    if st.session_state.current_page == num_pages - 1:
+        with col2:
+            if st.button("診断結果を見る", type="primary"):
+                if len(st.session_state.answers) != total_questions:
+                    st.error("すべての質問に回答してください。")
+                else:
+                    scores = calculate_scores(st.session_state.answers)
+                    scale_scores = calculate_scale_scores(scores)
+                    st.session_state.results = {"scale_scores": scale_scores}
+                    st.session_state.show_results = True
+                    st.rerun()
 
 # --- 計算関連の関数 ---
 
@@ -81,7 +135,7 @@ def calculate_scores(answers):
     for q in questions_data:
         answer = answers.get(q["id"])
         if answer:
-            if q["reverse"]:
+            if q.get("reverse", False):
                 scores[q["id"]] = SCORE_MAP_REVERSE[answer]
             else:
                 scores[q["id"]] = SCORE_MAP[answer]
@@ -95,6 +149,20 @@ def calculate_scale_scores(scores):
     return scale_scores
 
 # --- 結果表示関連の関数 ---
+
+def display_results():
+    """診断結果全体を表示します。"""
+    results = st.session_state.results
+    scale_scores = results["scale_scores"]
+    
+    display_heatmap(scale_scores)
+    display_high_stress_warning(scale_scores)
+    display_charts(scale_scores)
+
+    if st.button("最初からやり直す"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
 
 def display_heatmap(scale_scores):
     """結果をヒートマップ形式で表示します。"""
@@ -177,22 +245,24 @@ def main():
     apply_styling()
     render_header()
 
+    # セッション状態の初期化
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = 0
     if 'answers' not in st.session_state:
         st.session_state.answers = {}
+    if 'show_results' not in st.session_state:
+        st.session_state.show_results = False
 
-    render_questionnaire()
-
-    if st.button("診断結果を見る"):
-        if len(st.session_state.answers) != len(questions_data):
-            st.error("すべての質問に回答してください。")
+    # 結果表示フラグに応じて表示を切り替え
+    if st.session_state.show_results:
+        display_results()
+    else:
+        # questions_dataが空でないことを確認
+        if not questions_data:
+            st.error("質問データを読み込めませんでした。questions.csvファイルを確認してください。")
             return
-
-        scores = calculate_scores(st.session_state.answers)
-        scale_scores = calculate_scale_scores(scores)
-
-        display_heatmap(scale_scores)
-        display_high_stress_warning(scale_scores)
-        display_charts(scale_scores)
+        render_questionnaire()
+        handle_navigation()
 
 if __name__ == "__main__":
     main()

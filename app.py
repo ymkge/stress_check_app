@@ -65,15 +65,6 @@ def render_questionnaire():
     end_index = start_index + QUESTIONS_PER_PAGE
     current_questions = questions_data[start_index:end_index]
 
-    # 進捗状況の表示
-    total_questions = len(questions_data)
-    answered_count = len(st.session_state.answers)
-    progress = answered_count / total_questions if total_questions > 0 else 0
-    
-    st.progress(progress)
-    st.write(f"進捗: {answered_count} / {total_questions} 問")
-    st.markdown("---")
-
     # 質問の表示と回答の収集
     for q in current_questions:
         st.markdown(f'<p class="question-text">{q["text"]}</p>', unsafe_allow_html=True)
@@ -243,7 +234,6 @@ def apply_styling():
 def main():
     """アプリケーションのメイン実行関数。"""
     apply_styling()
-    render_header()
 
     # セッション状態の初期化
     if 'current_page' not in st.session_state:
@@ -253,14 +243,31 @@ def main():
     if 'show_results' not in st.session_state:
         st.session_state.show_results = False
 
-    # 結果表示フラグに応じて表示を切り替え
+    # --- サイドバー ---
+    st.sidebar.title("職業性ストレス簡易調査票")
+    st.sidebar.write("ご自身のストレス状態をチェックしてみましょう。各質問について、最も当てはまるものを1つ選んでください。")
+    st.sidebar.info("注意：このツールはあくまでプロトタイプであり、医学的診断に代わるものではありません。")
+
+    if not st.session_state.show_results:
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("進捗")
+        total_questions = len(questions_data)
+        answered_count = len(st.session_state.answers)
+        progress = answered_count / total_questions if total_questions > 0 else 0
+        
+        st.sidebar.progress(progress)
+        st.sidebar.write(f"進捗: {answered_count} / {total_questions} 問")
+
+    # --- メインコンテンツ ---
     if st.session_state.show_results:
+        st.title("診断結果")
         display_results()
     else:
         # questions_dataが空でないことを確認
         if not questions_data:
             st.error("質問データを読み込めませんでした。questions.csvファイルを確認してください。")
             return
+        
         render_questionnaire()
         handle_navigation()
 
